@@ -7,30 +7,46 @@
  *
  * ...and in the Install.js script The environment variable "NIH" below
  * should point to a valid directory with Installer Helper:
+ *
+ * try {
  *     var fs = new ActiveXObject("Scripting.FileSystemObject");
  *     var sh = WScript.CreateObject("WScript.Shell");
  *     var lib = eval(fs.OpenTextFile(
  *          sh.ExpandEnvironmentStrings("%NIH%") + "\\Lib.js", 1).ReadAll());
- *
  *     lib.installerHelper = sh.ExpandEnvironmentStrings("%NIH%");
+ *
  *     lib.sendKeysToWindow("NetSurf - NetSurf Uninstall", "{ENTER}");
+ * } catch (e) {
+ *     WScript.Echo(e.name + ": " + e.message);
+ *     WScript.Echo(e.number + ": " + e.description);
+ *     WScript.Quit(1);
+ * }
  */
 (function () {
 
 var L = {/* library interface */};
 
 /**
- * Wait for the dialog with the specified title and presses ENTER.
+ * Wait for the dialog with the specified title and emulates key press.
  *
  * @param title dialog title
  * @param keys e.g. "{ENTER}". See WScript.SendKeys for more details
  */
 L.sendKeysToWindow = function(title, keys) {
     var sh = WScript.CreateObject("WScript.Shell");
-    WScript.Sleep(60000);
-    sh.AppActivate(title);
-    WScript.Sleep(10000);
-    sh.SendKeys(keys);
+    var found = false;
+    for (var i = 0; i < 60; i++) {
+        WScript.Sleep(1000);
+        if (sh.AppActivate(title)) {
+            found = true;
+            break;
+        }
+    }
+    
+    if (found) {
+        WScript.Sleep(10000);
+        sh.SendKeys(keys);
+    }
 };
 
 /**
@@ -84,7 +100,7 @@ L.findFile = function(dir, re) {
  * expression.
  *
  * @param dir directory name. Use "." for the current directory.
- * @param re regular expression for the file name. Example: /\.js$/i
+ * @param re regular expression for the file name. Example: /^KeePassX-/i
  * @return the found file name without the path or null
  */
 L.findDir = function(dir, re) {
@@ -306,9 +322,106 @@ L.unpackAndDelete = function(file, target) {
     }
 };
 
+/**
+ * This function is available since 1.15.
+ *
+ * Removes the whitespace characters at the beginning and at the end of a 
+ * string. All characters that match \s in regular expressions will be remove.
+ *
+ * @param value text with spaces
+ * @return text without spaces
+ */
+L.trim = function(value) {
+    var w = new RegExp("^\\s+","gm");
+    var w2 = new RegExp("\\s+$","gm");
+    return value.replace(w, "").replace(w2, "");
+};
+
+/**
+ * This function is available since 1.15.
+ *
+ * Lists the sub-keys from the Windows registry.
+ *
+ * @param key path to a registry key, e.g. 
+ * HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall
+ * @return array of child keys. Full paths will be returned in every element.
+ *     Example: HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Adobe Flash Player ActiveX
+ */
+L.listRegistryKeys = function(key) {
+    var r = L.exec("reg.exe query \"" + key + "\"");
+    if (r[0] === 0) {
+        var result = [];
+        var output = r[1];
+        for (var i = 0; i < output.length; i++) {
+            if (L.trim(output[i]).length !== 0) {
+                result.push(output[i]);
+            }
+        }
+        return result;
+    } else {
+        throw new Error("reg.exe exited with the code " + r[0]);
+    }
+};
+
+/**
+ * This function is available since 1.15.
+ *
+ * Removes from "a" all elements that also exist in "b". 
+ * The order of the elements is not important. The elements are compared using
+ * the operator "===".
+ *
+ * @param a the first array
+ * @param b the second array
+ * @return "a" without all elements in "b"
+ */
+L.subArrays = function(a, b) {
+    var result = [];
+    for (var i = 0; i < a.length; i++) {
+        var ai = a[i];
+        var found = false;
+        for (var j = 0; j < b.length; j++) {
+            var bj = b[j];
+            if (ai === bj) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            result.push(ai);
+        }
+    }
+    return result;
+};
+
+/**
+ * This function is available since 1.16.
+ *
+ * Detects the system type: 32 bit or 64 bit.
+ *
+ * @return true if this system runs a 64 bit Windows
+ */
+L.is64bit = function() {
+    var r = false;
+
+    var sh = WScript.CreateObject("WScript.Shell");
+    var env = sh.Environment("Process");
+
+    // WScript.Echo("PROCESSOR_ARCHITECTURE: " + env("PROCESSOR_ARCHITECTURE"));
+    // WScript.Echo("PROCESSOR_ARCHITEW6432: " + env("PROCESSOR_ARCHITEW6432"));
+
+    if (env("PROCESSOR_ARCHITECTURE") === "x86") {
+        r = env("PROCESSOR_ARCHITEW6432") !== "";
+    } else {
+        r = true;
+    }
+
+    return r;
+}
+
 var TESTING = false;
 
 if (TESTING) {
+	
     L.installerHelper = "C:\\Users\\t\\projects\\installer-helper";
     // WScript.Echo(L.findFile(".", /\.js$/i));
     //L.registerOpenWith("org.test",  '"C:\\Program Files\\7-zip\\7zFM.exe" "%1"',
@@ -317,7 +430,15 @@ if (TESTING) {
     // L.installMSI(null, "INSTALLDIR");
     //L.uninstallMSI(null);
     //L.unpackAndDelete("test", ".");
-    WScript.Echo(L.findDir(".", /^pri/i));
+    //WScript.Echo(L.findDir(".", /^pri/i));
+    //WScript.Echo(L.listRegistryKeys("HKEY_LOCAL_MACHINE\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall").length);
+    //WScript.Echo("12" === "1" + "2");
+    //WScript.Echo(L.subArrays(["12d", "2", "8"], ["8", "2"])[0]);
+    //var before = L.listRegistryKeys("HKEY_LOCAL_MACHINE\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    //var after = L.listRegistryKeys("HKEY_LOCAL_MACHINE\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    //WScript.Echo("Difference: " + before.length + " " + after.length + " " + L.subArrays(after, before).length);
+    //WScript.Echo("64 bit: " + L.is64bit());
+    WScript.Echo(typeof {}["name"] === "undefined");
 }
 
 return L;
